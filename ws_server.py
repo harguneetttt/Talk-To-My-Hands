@@ -1,13 +1,3 @@
-"""
-SignBridge WebSocket Server
-Bridges the MediaPipe + Keras sign language model to the HTML frontend.
-
-Usage:
-  pip install websockets opencv-python mediapipe tensorflow google-genai python-dotenv
-  python ws_server.py
-
-Then open index.html and uncomment the connectBackend() block.
-"""
 import base64
 import asyncio
 import json
