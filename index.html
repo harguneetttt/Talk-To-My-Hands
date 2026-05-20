@@ -56,8 +56,6 @@
     pointer-events: none;
     z-index: 0;
   }
-
-  /* ── HEADER ── */
   header {
     position: relative; z-index: 10;
     display: flex; align-items: center; justify-content: space-between;
@@ -101,7 +99,6 @@
 
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-  /* ── MAIN LAYOUT ── */
   .app {
     position: relative; z-index: 1;
     display: grid;
@@ -109,8 +106,7 @@
     gap: 0;
     height: calc(100vh - 73px);
   }
-
-  /* ── CAMERA PANEL ── */
+  
   .camera-panel {
     position: relative;
     border-right: 1px solid var(--border);
@@ -139,7 +135,6 @@
     pointer-events: none;
   }
 
-  /* Hidden capture canvas */
   canvas#captureCanvas { display: none; }
 
   .corner {
@@ -219,7 +214,6 @@
   }
   .cam-placeholder p { color: var(--muted); font-size: 0.8rem; text-align: center; max-width: 200px; line-height: 1.6; }
 
-  /* ── CONTROLS BAR ── */
   .controls-bar {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 20px;
@@ -283,7 +277,6 @@
   }
   @keyframes shimmer { from{transform:translateX(-100%)} to{transform:translateX(100%)} }
 
-  /* ── SIDEBAR ── */
   .sidebar {
     display: flex; flex-direction: column;
     background: var(--surface);
@@ -357,7 +350,6 @@
     padding: 8px 0;
   }
 
-  /* Gemini output */
   .gemini-box {
     background: linear-gradient(135deg, rgba(26,10,46,0.6), rgba(13,27,62,0.6));
     border: 1px solid #2d1b69;
@@ -405,8 +397,7 @@
     font-size: 0.62rem; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.08em;
   }
-
-  /* History */
+  
   .history-panel {
     flex: 1;
     overflow-y: auto;
@@ -445,7 +436,6 @@
     font-style: italic;
   }
 
-  /* Copy button */
   .copy-btn {
     background: none; border: none; cursor: pointer;
     color: var(--muted); font-size: 0.75rem;
@@ -455,7 +445,6 @@
   }
   .copy-btn:hover { color: var(--accent); }
 
-  /* Toast */
   #toast {
     position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: var(--surface2); border: 1px solid var(--border);
@@ -469,7 +458,6 @@
   #toast.success { border-color: var(--accent3); color: var(--accent3); }
   #toast.error { border-color: var(--danger); color: var(--danger); }
 
-  /* WS status badge */
   .ws-badge {
     font-size: 0.62rem;
     padding: 3px 8px;
@@ -509,7 +497,6 @@
 
 <div class="app">
 
-  <!-- ── LEFT: CAMERA PANEL ── -->
   <div class="camera-panel">
     <div class="camera-view">
       <div class="cam-placeholder" id="camPlaceholder">
@@ -549,10 +536,8 @@
     </div>
   </div>
 
-  <!-- ── RIGHT: SIDEBAR ── -->
   <div class="sidebar">
 
-    <!-- Current sentence (word chips) -->
     <div class="panel">
       <div class="panel-label">Detected words</div>
       <div class="word-chips" id="wordChips">
@@ -560,7 +545,6 @@
       </div>
     </div>
 
-    <!-- Gemini output -->
     <div class="panel">
       <div class="panel-label">Gemini · Improved sentence</div>
       <div class="gemini-box">
@@ -574,7 +558,6 @@
       </div>
     </div>
 
-    <!-- History -->
     <div class="panel-label" style="padding:16px 20px 0;margin-bottom:0">History</div>
     <div class="history-panel" id="historyPanel">
       <div class="history-empty">No translations yet</div>
@@ -586,20 +569,14 @@
 <div id="toast"></div>
 
 <script>
-// ──────────────────────────────────────────────
-// CONFIG
-// ──────────────────────────────────────────────
 const ACTIONS = ["YOU", "ME", "WANT", "NEED", "KNOW", "WHAT"];
 const GEMINI_MODEL = "gemini-2.5-flash";
 const CONFIDENCE_THRESHOLD = 0.8;
 const STABILITY_FRAMES = 7;
 const WS_URL = "ws://localhost:8765";
-// How many times per second to send frames to the backend
 const CAPTURE_FPS = 15;
 
-// ──────────────────────────────────────────────
-// STATE
-// ──────────────────────────────────────────────
+
 let stream = null;
 let animFrame = null;
 let captureInterval = null;
@@ -612,9 +589,7 @@ let history = [];
 let ws = null;
 let wsReady = false;
 
-// ──────────────────────────────────────────────
-// CAMERA
-// ──────────────────────────────────────────────
+
 async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -636,23 +611,18 @@ async function startCamera() {
 
   setStatus('live', 'Live · Detecting');
 
-  // Size the capture canvas to match video
   const cap = document.getElementById('captureCanvas');
   cap.width = video.videoWidth || 640;
   cap.height = video.videoHeight || 480;
 
-  // Size overlay canvas
   const overlay = document.getElementById('overlay');
   overlay.width = video.videoWidth || 640;
   overlay.height = video.videoHeight || 480;
-
-  // Start sending frames
+  
   captureInterval = setInterval(sendFrame, 1000 / CAPTURE_FPS);
 
-  // Start render loop for scan-line effect
   if (!animFrame) animFrame = requestAnimationFrame(renderLoop);
 
-  // Connect WebSocket (reconnect if closed)
   connectBackend();
 
   showToast('Camera started', 'success');
@@ -678,9 +648,6 @@ function stopCamera() {
   showToast('Stopped');
 }
 
-// ──────────────────────────────────────────────
-// FRAME CAPTURE → WEBSOCKET
-// ──────────────────────────────────────────────
 function sendFrame() {
   if (!wsReady) return;
 
@@ -701,9 +668,6 @@ function sendFrame() {
   document.getElementById('frameCount').textContent = frameCount + ' frames';
 }
 
-// ──────────────────────────────────────────────
-// RENDER LOOP — scanning line effect on overlay
-// ──────────────────────────────────────────────
 function renderLoop() {
   animFrame = requestAnimationFrame(renderLoop);
   const canvas = document.getElementById('overlay');
@@ -720,9 +684,6 @@ function renderLoop() {
   ctx.fillRect(0, y - 40, canvas.width, 80);
 }
 
-// ──────────────────────────────────────────────
-// PREDICTION INGESTION (called on WS message)
-// ──────────────────────────────────────────────
 function ingestPrediction(probs, word, confidence) {
   // Update confidence bar
   const conf = confidence || 0;
@@ -735,7 +696,6 @@ function ingestPrediction(probs, word, confidence) {
   wordEl.textContent = word;
   wordEl.classList.add('visible');
 
-  // Stability check
   const maxIdx = ACTIONS.indexOf(word);
   if (maxIdx >= 0) predictions.push(maxIdx);
   if (predictions.length > 10) predictions = predictions.slice(-10);
@@ -750,9 +710,6 @@ function ingestPrediction(probs, word, confidence) {
   setTimeout(() => wordEl.classList.remove('visible'), 800);
 }
 
-// ──────────────────────────────────────────────
-// SENTENCE MANAGEMENT
-// ──────────────────────────────────────────────
 function addWord(word) {
   sentence.push(word);
   renderChips();
@@ -788,9 +745,6 @@ function clearSentence() {
   showToast('Sentence cleared');
 }
 
-// ──────────────────────────────────────────────
-// GEMINI / CLAUDE IMPROVE
-// ──────────────────────────────────────────────
 async function improveSentence() {
 
   if (sentence.length === 0) {
@@ -825,10 +779,6 @@ async function improveSentence() {
 }
 
 
-
-// ──────────────────────────────────────────────
-// HISTORY
-// ──────────────────────────────────────────────
 function addHistory(raw, improved) {
   history.unshift({ raw, improved, time: new Date().toLocaleTimeString() });
   renderHistory();
@@ -853,9 +803,6 @@ function renderHistory() {
   });
 }
 
-// ──────────────────────────────────────────────
-// WEBSOCKET BRIDGE
-// ──────────────────────────────────────────────
 function connectBackend() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
@@ -928,9 +875,6 @@ function connectBackend() {
   };
 }
 
-// ──────────────────────────────────────────────
-// UI HELPERS
-// ──────────────────────────────────────────────
 function setStatus(state, text) {
   const dot = document.getElementById('statusDot');
   const label = document.getElementById('statusText');
@@ -952,9 +896,6 @@ function copyGemini() {
   navigator.clipboard.writeText(geminiOutput).then(() => showToast('Copied!', 'success'));
 }
 
-// ──────────────────────────────────────────────
-// INIT
-// ──────────────────────────────────────────────
 renderHistory();
 
 document.addEventListener('keydown', e => {
