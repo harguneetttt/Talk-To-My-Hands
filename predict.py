@@ -1,61 +1,80 @@
 import cv2
 import numpy as np
 import mediapipe as mp
+from google import genai
 from tensorflow.keras.models import load_model
-
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from dotenv import load_dotenv
+import os
+import time
 
-# -------------------------------
-# LOAD MODEL
-# -------------------------------
-model = load_model("model.h5")
+load_dotenv()
 
-actions = list(np.load("data/y.npy", allow_pickle=True))
-actions = sorted(list(set(actions)))
-last_prediction_time = 0
-display_action = ""
-display_duration = 2000  # milliseconds (2 seconds)
-# -------------------------------
-# LOAD MEDIAPIPE MODELS
-# -------------------------------
-pose_base = python.BaseOptions(
-    model_asset_path="models/pose_landmarker_full.task"
-)
+model = load_model("action_model.h5")
+actions = ["YOU", "ME", "WANT","NEED","KNOW","WHAT"]
 
-pose_options = vision.PoseLandmarkerOptions(
-    base_options=pose_base,
-    running_mode=vision.RunningMode.VIDEO
-)
+sentence = []
+last_word = ""
+final_sentence = ""
+predictions=[]
 
-pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
-
-
-hand_base = python.BaseOptions(
-    model_asset_path="models/hand_landmarker.task"
-)
-
-hand_options = vision.HandLandmarkerOptions(
-    base_options=hand_base,
+base_options = python.BaseOptions(model_asset_path='/Users/harguneet/Downloads/hand_landmarker.task')
+options = vision.HandLandmarkerOptions(
+    base_options=base_options,
     num_hands=2,
     running_mode=vision.RunningMode.VIDEO
 )
+detector = vision.HandLandmarker.create_from_options(options)
 
-hand_detector = vision.HandLandmarker.create_from_options(hand_options)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+print("API KEY:", os.getenv("GEMINI_API_KEY"))
 
-# -------------------------------
-# LANDMARKS
-# -------------------------------
-POSE_POINTS = [11,12,13,14,15,16,23,24,25,26,27,28]
-FACE_POINTS = [0,1,2,3,4,5,6,7,8,9,10]
+def improve_sentence(sentence_list):
+    text = " ".join(sentence_list)
 
-EXPECTED = 195
+    prompt = f"""
+    Rewrite this into a grammatically correct sentence.
+    Do not summarize. Do not change meaning.
+
+    Input: {text}
+    Output:
+    """
+
+    for _ in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-flash-latest",
+                contents=[{
+                    "role": "user",
+                    "parts": [{"text": prompt}]
+                }]
+            )
+
+            return response.text.strip()
+
+        except Exception as e:
+            print("Retrying Gemini...", e)
+            time.sleep(2)
+
+    return "Gemini unavailable"
+
+def extract_keypoints(result):
+    if result.hand_landmarks:
+        hands = []
+        for hand in result.hand_landmarks:
+            for lm in hand:
+                hands.extend([lm.x, lm.y, lm.z])
+        while len(hands) < 126:
+            hands.extend([0,0,0])
+        return np.array(hands)
+    else:
+        return np.zeros(126)
+
+cap = cv2.VideoCapture(1)
 
 sequence = []
-threshold = 0.8
 timestamp = 0
-
-cap = cv2.VideoCapture(0)
 
 while True:
     ret, frame = cap.read()
@@ -63,79 +82,60 @@ while True:
         break
 
     frame = cv2.flip(frame, 1)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    timestamp += 1
+    timestamp +=1 
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+    result = detector.detect_for_video(mp_image, timestamp)
 
-    mp_image = mp.Image(
-        image_format=mp.ImageFormat.SRGB,
-        data=rgb
-    )
-
-    coords = []
-
-    # -------------------------------
-    # POSE + FACE
-    # -------------------------------
-    pose_result = pose_detector.detect_for_video(mp_image, timestamp)
-
-    if pose_result.pose_landmarks:
-        landmarks = pose_result.pose_landmarks[0]
-
-        for idx in POSE_POINTS:
-            lm = landmarks[idx]
-            coords.extend([lm.x, lm.y, lm.z])
-
-        for idx in FACE_POINTS:
-            lm = landmarks[idx]
-            coords.extend([lm.x, lm.y, lm.z])
+    if result.hand_landmarks:
+        keypoints = extract_keypoints(result)
+        sequence.append(keypoints)
     else:
-        coords.extend([0]*((len(POSE_POINTS)+len(FACE_POINTS))*3))
-
-    # -------------------------------
-    # HANDS
-    # -------------------------------
-    hand_result = hand_detector.detect_for_video(mp_image, timestamp)
-
-    if hand_result.hand_landmarks:
-        for hand in hand_result.hand_landmarks:
-            for lm in hand:
-                coords.extend([lm.x, lm.y, lm.z])
-
-        if len(hand_result.hand_landmarks) == 1:
-            coords.extend([0]*63)
-    else:
-        coords.extend([0]*126)
-
-    # -------------------------------
-    # FIX SIZE
-    # -------------------------------
-    coords = coords[:EXPECTED]
-
-    if len(coords) < EXPECTED:
-        coords.extend([0]*(EXPECTED - len(coords)))
-
-    # -------------------------------
-    # SEQUENCE
-    # -------------------------------
-    sequence.append(coords)
+        sequence = []  # reset if no hands
     sequence = sequence[-30:]
 
-    current_time = cv2.getTickCount() / cv2.getTickFrequency() * 1000  # ms
+    if len(sequence) == 30:
+        arr = np.array(sequence)
+        print(arr.ndim)
+        res = model.predict(np.expand_dims(sequence, axis=0), verbose=0)[0]
+        print(res.ndim)
+        if np.max(res) > 0.8:
+            word = actions[np.argmax(res)]
+            predictions.append(np.argmax(res))
 
-    if len(sequence) == 30 and (current_time - last_prediction_time > 2000):
+        if len(predictions) > 10:
+            predictions = predictions[-10:]
 
-        res = model.predict(np.expand_dims(sequence, axis=0))[0]
+        if len(predictions) > 0 and predictions.count(predictions[-1]) > 7:
+            word = actions[predictions[-1]]
+        
+            if word != last_word:
+                sentence.append(word)
+                last_word = word
 
-        if res.max() > threshold:
-            display_action = actions[np.argmax(res)]
-            last_prediction_time = current_time
-    if display_action != "":
-        cv2.putText(frame, display_action, (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, " ".join(sentence), (50, 200),
+        cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 3)
+    
+    cv2.putText(frame, final_sentence, (50, 250),
+            cv2.FONT_HERSHEY_SIMPLEX, 3, (255,0,0), 3)
     cv2.imshow("Prediction", frame)
 
-    if cv2.waitKey(10) & 0xFF == ord('q'):
+    key = cv2.waitKey(1) & 0xFF
+
+    if key == ord('s'):
+        if len(sentence) > 0:
+            try:
+                final_sentence = improve_sentence(sentence)
+            except Exception as e:
+                print("Gemini error:", e)
+                final_sentence = "..."
+            print("Gemini:", final_sentence)
+
+            sentence = []
+            last_word = ""
+
+    if key == ord('q'):
         break
 
 cap.release()
