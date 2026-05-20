@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SignBridge — AI Sign Language Translator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #080c10;
+    --surface: #0e1419;
+    --surface2: #141c24;
+    --border: #1e2d3d;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --accent3: #7fff6e;
+    --text: #e8f4f8;
+    --muted: #5a7a8a;
+    --danger: #ff4757;
+    --glow: 0 0 30px rgba(0,229,255,0.15);
+    --glow2: 0 0 30px rgba(255,107,53,0.2);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Space Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.04) 2px,
+      rgba(0,0,0,0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,12,16,0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: -0.02em;
+  }
+  .logo span { color: var(--accent); }
+
+  .logo-tag {
+    font-size: 0.65rem;
+    color: var(--muted);
+    font-weight: 400;
+    margin-left: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .status-bar {
+    display: flex; align-items: center; gap: 20px;
+    font-size: 0.72rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    transition: all 0.3s;
+  }
+  .status-dot.live { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); animation: pulse 2s infinite; }
+  .status-dot.processing { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1s infinite; }
+  .status-dot.error { background: var(--danger); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── MAIN LAYOUT ── */
+  .app {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    height: calc(100vh - 73px);
+  }
+
+  /* ── CAMERA PANEL ── */
+  .camera-panel {
+    position: relative;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .camera-view {
+    position: relative;
+    flex: 1;
+    background: #000;
+    overflow: hidden;
+  }
+
+  video#webcam {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    transform: scaleX(-1);
+    filter: brightness(0.9) contrast(1.1);
+  }
+
+  canvas#overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* Hidden capture canvas */
+  canvas#captureCanvas { display: none; }
+
+  .corner {
+    position: absolute; width: 28px; height: 28px;
+    z-index: 5;
+  }
+  .corner::before, .corner::after {
+    content: ''; position: absolute;
+    background: var(--accent); border-radius: 1px;
+  }
+  .corner::before { width: 100%; height: 2px; top: 0; left: 0; }
+  .corner::after  { width: 2px; height: 100%; top: 0; left: 0; }
+  .corner.tl { top: 20px; left: 20px; }
+  .corner.tr { top: 20px; right: 20px; transform: scaleX(-1); }
+  .corner.bl { bottom: 20px; left: 20px; transform: scaleY(-1); }
+  .corner.br { bottom: 20px; right: 20px; transform: scale(-1); }
+
+  .prediction-overlay {
+    position: absolute;
+    bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 6;
+    text-align: center;
+  }
+
+  .current-word {
+    font-family: 'Syne', sans-serif;
+    font-size: 3.5rem;
+    font-weight: 800;
+    color: var(--accent);
+    text-shadow: 0 0 40px rgba(0,229,255,0.6), 0 2px 4px rgba(0,0,0,0.8);
+    letter-spacing: -0.02em;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    white-space: nowrap;
+  }
+  .current-word.visible { opacity: 1; transform: translateY(0); }
+
+  .conf-bar-wrap {
+    position: absolute;
+    bottom: 20px; left: 20px; right: 20px;
+    z-index: 6;
+  }
+  .conf-label {
+    font-size: 0.65rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 5px;
+    display: flex; justify-content: space-between;
+  }
+  .conf-bar {
+    height: 3px; background: var(--border); border-radius: 2px;
+    overflow: hidden;
+  }
+  .conf-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  .cam-placeholder {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: var(--surface);
+    gap: 16px;
+    z-index: 4;
+  }
+  .cam-placeholder.hidden { display: none; }
+
+  .cam-icon {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem;
+    color: var(--muted);
+  }
+  .cam-placeholder p { color: var(--muted); font-size: 0.8rem; text-align: center; max-width: 200px; line-height: 1.6; }
+
+  /* ── CONTROLS BAR ── */
+  .controls-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 10px 18px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  .btn-primary:hover { background: #33eaff; box-shadow: 0 0 20px rgba(0,229,255,0.3); }
+  .btn-primary:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+  }
+  .btn-secondary:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  .btn-danger:hover { background: rgba(255,71,87,0.1); box-shadow: 0 0 15px rgba(255,71,87,0.2); }
+
+  .btn-gemini {
+    background: linear-gradient(135deg, #1a0a2e, #0d1b3e);
+    color: #a78bfa;
+    border-color: #5b21b6;
+    position: relative; overflow: hidden;
+  }
+  .btn-gemini::before {
+    content: '✦';
+    margin-right: 6px;
+    font-size: 0.8rem;
+  }
+  .btn-gemini:hover { border-color: #a78bfa; box-shadow: 0 0 20px rgba(167,139,250,0.3); color: #c4b5fd; }
+  .btn-gemini:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+  .btn-gemini.loading::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(167,139,250,0.15), transparent);
+    animation: shimmer 1.2s infinite;
+  }
+  @keyframes shimmer { from{transform:translateX(-100%)} to{transform:translateX(100%)} }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    display: flex; flex-direction: column;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .panel {
+    border-bottom: 1px solid var(--border);
+    padding: 20px;
+  }
+  .panel:last-child { border-bottom: none; flex: 1; }
+
+  .panel-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  .word-chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    min-height: 48px;
+  }
+
+  .chip {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    animation: chipIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .chip:hover { border-color: var(--danger); }
+  .chip:hover::after {
+    content: '×';
+    position: absolute; top: -6px; right: -6px;
+    background: var(--danger);
+    color: white;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 16px; text-align: center;
+  }
+
+  .chip.new {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,229,255,0.2);
+  }
+
+  @keyframes chipIn {
+    from { opacity: 0; transform: scale(0.7) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  .empty-hint {
+    color: var(--muted); font-size: 0.75rem;
+    font-style: italic; align-self: center;
+    padding: 8px 0;
+  }
+
+  /* Gemini output */
+  .gemini-box {
+    background: linear-gradient(135deg, rgba(26,10,46,0.6), rgba(13,27,62,0.6));
+    border: 1px solid #2d1b69;
+    border-radius: 6px;
+    padding: 16px;
+    min-height: 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .gemini-box::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(167,139,250,0.04), transparent);
+    pointer-events: none;
+  }
+
+  .gemini-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: #c4b5fd;
+    min-height: 2em;
+  }
+
+  .gemini-text.typing::after {
+    content: '▋';
+    animation: blink 0.6s infinite;
+    color: var(--accent);
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .gemini-empty {
+    color: #5b3fa0; font-size: 0.78rem; font-style: italic;
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .gemini-meta {
+    display: flex; justify-content: space-between;
+    margin-top: 10px;
+    font-size: 0.62rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  /* History */
+  .history-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .history-entry {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    margin-bottom: 8px;
+    animation: slideIn 0.3s ease both;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  .history-raw {
+    font-size: 0.68rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .history-improved {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.88rem; font-weight: 600;
+    color: #c4b5fd;
+  }
+  .history-time {
+    font-size: 0.6rem; color: var(--muted); align-self: flex-end;
+  }
+
+  .history-empty {
+    color: var(--muted); font-size: 0.75rem;
+    text-align: center; padding: 20px 0;
+    font-style: italic;
+  }
+
+  /* Copy button */
+  .copy-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 0.75rem;
+    font-family: 'Space Mono', monospace;
+    transition: color 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .copy-btn:hover { color: var(--accent); }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 20px;
+    font-size: 0.78rem; color: var(--text);
+    opacity: 0; transition: all 0.3s;
+    z-index: 100; pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--accent3); color: var(--accent3); }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* WS status badge */
+  .ws-badge {
+    font-size: 0.62rem;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.3s;
+  }
+  .ws-badge.connected { border-color: var(--accent3); color: var(--accent3); }
+  .ws-badge.error { border-color: var(--danger); color: var(--danger); }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 60vh auto; }
+    .camera-panel { border-right: none; border-bottom: 1px solid var(--border); }
+    .sidebar { max-height: 50vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:baseline;gap:4px">
+    <div class="logo">Sign<span>Bridge</span></div>
+    <span class="logo-tag">v1.0 · AI Translator</span>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Camera off</span>
+    <span style="color:var(--border)">|</span>
+    <span id="frameCount">0 frames</span>
+    <span style="color:var(--border)">|</span>
+    <span class="ws-badge" id="wsBadge">WS Disconnected</span>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- ── LEFT: CAMERA PANEL ── -->
+  <div class="camera-panel">
+    <div class="camera-view">
+      <div class="cam-placeholder" id="camPlaceholder">
+        <div class="cam-icon">📷</div>
+        <p>Press <strong>Start Camera</strong> to begin sign language detection</p>
+      </div>
+
+      <video id="webcam" autoplay playsinline muted></video>
+      <!-- Hidden canvas used to capture frames for WebSocket -->
+      <canvas id="captureCanvas"></canvas>
+
+      <canvas id="overlay"></canvas>
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+
+      <div class="prediction-overlay">
+        <div class="current-word" id="currentWord"></div>
+      </div>
+
+      <div class="conf-bar-wrap">
+        <div class="conf-label">
+          <span>Confidence</span>
+          <span id="confValue">—</span>
+        </div>
+        <div class="conf-bar"><div class="conf-fill" id="confFill"></div></div>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <button class="btn btn-primary" id="startBtn" onclick="startCamera()">▶ Start Camera</button>
+      <button class="btn btn-secondary" id="stopBtn" onclick="stopCamera()" disabled>■ Stop</button>
+      <button class="btn btn-danger" id="clearBtn" onclick="clearSentence()">⌫ Clear</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-gemini" id="improveBtn" onclick="improveSentence()" disabled>Improve with Gemini</button>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: SIDEBAR ── -->
+  <div class="sidebar">
+
+    <!-- Current sentence (word chips) -->
+    <div class="panel">
+      <div class="panel-label">Detected words</div>
+      <div class="word-chips" id="wordChips">
+        <span class="empty-hint">Words will appear here…</span>
+      </div>
+    </div>
+
+    <!-- Gemini output -->
+    <div class="panel">
+      <div class="panel-label">Gemini · Improved sentence</div>
+      <div class="gemini-box">
+        <div class="gemini-text" id="geminiText">
+          <span class="gemini-empty" id="geminiEmpty">Improve a sentence with ✦ Gemini</span>
+        </div>
+      </div>
+      <div class="gemini-meta">
+        <span id="geminiModel">—</span>
+        <button class="copy-btn" id="copyBtn" onclick="copyGemini()" style="display:none">⎘ Copy</button>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="panel-label" style="padding:16px 20px 0;margin-bottom:0">History</div>
+    <div class="history-panel" id="historyPanel">
+      <div class="history-empty">No translations yet</div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ──────────────────────────────────────────────
+// CONFIG
+// ──────────────────────────────────────────────
+const ACTIONS = ["YOU", "ME", "WANT", "NEED", "KNOW", "WHAT"];
+const GEMINI_MODEL = "gemini-2.5-flash";
+const CONFIDENCE_THRESHOLD = 0.8;
+const STABILITY_FRAMES = 7;
+const WS_URL = "ws://localhost:8765";
+// How many times per second to send frames to the backend
+const CAPTURE_FPS = 15;
+
+// ──────────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────────
+let stream = null;
+let animFrame = null;
+let captureInterval = null;
+let frameCount = 0;
+let sentence = [];
+let lastWord = "";
+let predictions = [];
+let geminiOutput = "";
+let history = [];
+let ws = null;
+let wsReady = false;
+
+// ──────────────────────────────────────────────
+// CAMERA
+// ──────────────────────────────────────────────
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  } catch (e) {
+    showToast('Camera permission denied', 'error');
+    setStatus('error', 'Camera error');
+    return;
+  }
+
+  const video = document.getElementById('webcam');
+  video.srcObject = stream;
+  await new Promise(res => video.onloadedmetadata = res);
+  video.play();
+
+  document.getElementById('camPlaceholder').classList.add('hidden');
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  document.getElementById('improveBtn').disabled = false;
+
+  setStatus('live', 'Live · Detecting');
+
+  // Size the capture canvas to match video
+  const cap = document.getElementById('captureCanvas');
+  cap.width = video.videoWidth || 640;
+  cap.height = video.videoHeight || 480;
+
+  // Size overlay canvas
+  const overlay = document.getElementById('overlay');
+  overlay.width = video.videoWidth || 640;
+  overlay.height = video.videoHeight || 480;
+
+  // Start sending frames
+  captureInterval = setInterval(sendFrame, 1000 / CAPTURE_FPS);
+
+  // Start render loop for scan-line effect
+  if (!animFrame) animFrame = requestAnimationFrame(renderLoop);
+
+  // Connect WebSocket (reconnect if closed)
+  connectBackend();
+
+  showToast('Camera started', 'success');
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+  if (captureInterval) { clearInterval(captureInterval); captureInterval = null; }
+
+  const video = document.getElementById('webcam');
+  video.srcObject = null;
+
+  document.getElementById('camPlaceholder').classList.remove('hidden');
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('improveBtn').disabled = true;
+
+  setStatus('off', 'Camera off');
+  showToast('Stopped');
+}
+
+// ──────────────────────────────────────────────
+// FRAME CAPTURE → WEBSOCKET
+// ──────────────────────────────────────────────
+function sendFrame() {
+  if (!wsReady) return;
+
+  const video = document.getElementById('webcam');
+  if (!video.videoWidth) return;
+
+  const cap = document.getElementById('captureCanvas');
+  const ctx = cap.getContext('2d');
+
+  // Draw current video frame to hidden canvas (un-mirrored for backend)
+  ctx.drawImage(video, 0, 0, cap.width, cap.height);
+
+  // Convert to JPEG base64 dataURL and send
+  const dataUrl = cap.toDataURL('image/jpeg', 0.7);
+  ws.send(dataUrl);
+
+  frameCount++;
+  document.getElementById('frameCount').textContent = frameCount + ' frames';
+}
+
+// ──────────────────────────────────────────────
+// RENDER LOOP — scanning line effect on overlay
+// ──────────────────────────────────────────────
+function renderLoop() {
+  animFrame = requestAnimationFrame(renderLoop);
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const t = Date.now() / 1000;
+  const y = ((Math.sin(t * 0.5) + 1) / 2) * canvas.height;
+  const grad = ctx.createLinearGradient(0, y - 40, 0, y + 40);
+  grad.addColorStop(0, 'transparent');
+  grad.addColorStop(0.5, 'rgba(0,229,255,0.06)');
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, y - 40, canvas.width, 80);
+}
+
+// ──────────────────────────────────────────────
+// PREDICTION INGESTION (called on WS message)
+// ──────────────────────────────────────────────
+function ingestPrediction(probs, word, confidence) {
+  // Update confidence bar
+  const conf = confidence || 0;
+  document.getElementById('confFill').style.width = (conf * 100) + '%';
+  document.getElementById('confValue').textContent = (conf * 100).toFixed(1) + '%';
+
+  if (!word) return; // backend only sends word when above threshold
+
+  const wordEl = document.getElementById('currentWord');
+  wordEl.textContent = word;
+  wordEl.classList.add('visible');
+
+  // Stability check
+  const maxIdx = ACTIONS.indexOf(word);
+  if (maxIdx >= 0) predictions.push(maxIdx);
+  if (predictions.length > 10) predictions = predictions.slice(-10);
+
+  if (predictions.length > 0 && predictions.filter(p => p === predictions.at(-1)).length > STABILITY_FRAMES) {
+    if (word !== lastWord) {
+      addWord(word);
+      lastWord = word;
+    }
+  }
+
+  setTimeout(() => wordEl.classList.remove('visible'), 800);
+}
+
+// ──────────────────────────────────────────────
+// SENTENCE MANAGEMENT
+// ──────────────────────────────────────────────
+function addWord(word) {
+  sentence.push(word);
+  renderChips();
+  setStatus('processing', 'Word detected');
+  setTimeout(() => setStatus('live', 'Live · Detecting'), 1500);
+}
+
+function renderChips() {
+  const container = document.getElementById('wordChips');
+  container.innerHTML = '';
+  if (sentence.length === 0) {
+    container.innerHTML = '<span class="empty-hint">Words will appear here…</span>';
+    return;
+  }
+  sentence.forEach((w, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (i === sentence.length - 1 ? ' new' : '');
+    chip.textContent = w;
+    chip.title = 'Click to remove';
+    chip.onclick = () => { sentence.splice(i, 1); lastWord = sentence.at(-1) || ''; renderChips(); };
+    container.appendChild(chip);
+    if (i === sentence.length - 1) {
+      setTimeout(() => chip.classList.remove('new'), 600);
+    }
+  });
+}
+
+function clearSentence() {
+  sentence = [];
+  lastWord = '';
+  predictions = [];
+  renderChips();
+  showToast('Sentence cleared');
+}
+
+// ──────────────────────────────────────────────
+// GEMINI / CLAUDE IMPROVE
+// ──────────────────────────────────────────────
+async function improveSentence() {
+
+  if (sentence.length === 0) {
+    showToast('No words to improve', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('improveBtn');
+
+  btn.disabled = true;
+
+  btn.classList.add('loading');
+
+  btn.textContent = 'Thinking…';
+
+  const textEl = document.getElementById('geminiText');
+
+  const emptyEl = document.getElementById('geminiEmpty');
+
+  if (emptyEl) {
+    emptyEl.style.display = 'none';
+  }
+
+  textEl.textContent = '';
+
+  textEl.classList.add('typing');
+
+  ws.send(JSON.stringify({
+    type: "improve_sentence",
+    sentence: sentence
+  }));
+}
+
+
+
+// ──────────────────────────────────────────────
+// HISTORY
+// ──────────────────────────────────────────────
+function addHistory(raw, improved) {
+  history.unshift({ raw, improved, time: new Date().toLocaleTimeString() });
+  renderHistory();
+}
+
+function renderHistory() {
+  const panel = document.getElementById('historyPanel');
+  if (history.length === 0) {
+    panel.innerHTML = '<div class="history-empty">No translations yet</div>';
+    return;
+  }
+  panel.innerHTML = '';
+  history.forEach(h => {
+    const el = document.createElement('div');
+    el.className = 'history-entry';
+    el.innerHTML = `
+      <div class="history-raw">${h.raw}</div>
+      <div class="history-improved">${h.improved}</div>
+      <div class="history-time">${h.time}</div>
+    `;
+    panel.appendChild(el);
+  });
+}
+
+// ──────────────────────────────────────────────
+// WEBSOCKET BRIDGE
+// ──────────────────────────────────────────────
+function connectBackend() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+  ws = new WebSocket(WS_URL);
+  const badge = document.getElementById('wsBadge');
+
+  ws.onopen = () => {
+    wsReady = true;
+    badge.textContent = 'WS Connected';
+    badge.className = 'ws-badge connected';
+    setStatus('live', 'Backend connected');
+    showToast('Backend connected', 'success');
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      // data = { probs: [...], word: "YOU" | null, confidence: 0.92 }
+      if (data.type === "gemini_result") {
+
+  const textEl = document.getElementById('geminiText');
+
+  textEl.classList.remove('typing');
+
+  textEl.textContent = data.text;
+
+  geminiOutput = data.text;
+
+  document.getElementById('geminiModel').textContent =
+    '✦ Gemini · ' + new Date().toLocaleTimeString();
+
+  document.getElementById('copyBtn').style.display = 'inline';
+
+  addHistory(sentence.join(' '), data.text);
+
+  clearSentence();
+
+  const btn = document.getElementById('improveBtn');
+
+  btn.disabled = false;
+
+  btn.classList.remove('loading');
+
+  btn.innerHTML = '✦ Improve with Gemini';
+
+  showToast('Sentence improved!', 'success');
+
+  return;
+}
+      ingestPrediction(data.probs || [], data.word || null, data.confidence || 0);
+    } catch(err) {
+      console.error('WS parse error:', err);
+    }
+  };
+
+  ws.onerror = () => {
+    wsReady = false;
+    badge.textContent = 'WS Error';
+    badge.className = 'ws-badge error';
+    setStatus('error', 'Backend error');
+  };
+
+  ws.onclose = () => {
+    wsReady = false;
+    badge.textContent = 'WS Disconnected';
+    badge.className = 'ws-badge';
+    setStatus('off', 'Disconnected');
+    // Auto-reconnect after 3s if camera is still running
+    if (stream) setTimeout(connectBackend, 3000);
+  };
+}
+
+// ──────────────────────────────────────────────
+// UI HELPERS
+// ──────────────────────────────────────────────
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.className = 'status-dot ' + (state === 'live' ? 'live' : state === 'processing' ? 'processing' : state === 'error' ? 'error' : '');
+  label.textContent = text;
+}
+
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = '', 2800);
+}
+
+function copyGemini() {
+  if (!geminiOutput) return;
+  navigator.clipboard.writeText(geminiOutput).then(() => showToast('Copied!', 'success'));
+}
+
+// ──────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────
+renderHistory();
+
+document.addEventListener('keydown', e => {
+  if (e.key === 's' && !e.ctrlKey && !e.metaKey) improveSentence();
+  if (e.key === 'Escape') clearSentence();
+});
+</script>
+</body>
+</html>
