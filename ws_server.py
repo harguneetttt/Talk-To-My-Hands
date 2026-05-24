@@ -38,7 +38,6 @@ options = vision.HandLandmarkerOptions(
 detector = vision.HandLandmarker.create_from_options(options)
 print("Models loaded.")
 
-# ── KEYPOINT EXTRACTION ──────────────────────────────────────────────────────
 def extract_keypoints(result):
     if result.hand_landmarks:
         hands = []
@@ -77,7 +76,6 @@ async def improve_sentence_with_gemini(words):
         print("Gemini error:", e)
 
         return "Gemini unavailable"
-# ── WEBSOCKET HANDLER ─────────────────────────────────────────────────────────
 async def detection_handler(websocket):
 
     print(f"Client connected: {websocket.remote_address}")
@@ -90,7 +88,6 @@ async def detection_handler(websocket):
 
             try:
 
-                # ── GEMINI REQUEST ─────────────────────────────
                 if isinstance(message, str):
 
                     try:
@@ -113,7 +110,6 @@ async def detection_handler(websocket):
                     except:
                         pass
 
-                # ── FRAME PROCESSING ───────────────────────────
                 encoded_data = message.split(',')[1]
 
                 nparr = np.frombuffer(
@@ -148,7 +144,6 @@ async def detection_handler(websocket):
                     timestamp
                 )
 
-                # ── LANDMARK EXTRACTION ────────────────────────
                 if result.hand_landmarks:
 
                     kp = extract_keypoints(result)
@@ -160,14 +155,12 @@ async def detection_handler(websocket):
 
                 sequence = sequence[-SEQUENCE_LENGTH:]
 
-                # ── DEFAULT PAYLOAD ────────────────────────────
                 payload = {
                     "probs": [0.0] * len(ACTIONS),
                     "word": None,
                     "confidence": 0.0
                 }
 
-                # ── MODEL PREDICTION ───────────────────────────
                 if len(sequence) == SEQUENCE_LENGTH:
 
                     res = model.predict(
@@ -189,7 +182,6 @@ async def detection_handler(websocket):
                         "confidence": confidence
                     }
 
-                # ── SEND PREDICTION TO FRONTEND ────────────────
                 await websocket.send(json.dumps(payload))
 
             except Exception as e:
@@ -202,7 +194,7 @@ async def detection_handler(websocket):
 
 
 async def main():
-    print(f"Starting SignBridge WebSocket server on ws://{WS_HOST}:{WS_PORT}")
+    print(f"Starting TTMH WebSocket server on ws://{WS_HOST}:{WS_PORT}")
     async with websockets.serve(detection_handler, WS_HOST, WS_PORT):
         await asyncio.Future()  # run forever
 
