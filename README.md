@@ -16,11 +16,7 @@ This project was developed as a college-level AI and Computer Vision project.
 
 ## Aryan Kanas
 
-LinkedIn: [https://www.linkedin.com/](https://www.linkedin.com/)
-
-## Hargunneet Kaur
-
-LinkedIn: [https://www.linkedin.com/](https://www.linkedin.com/)
+## Harguneet Kaur
 
 ---
 
