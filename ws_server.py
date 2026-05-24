@@ -16,7 +16,6 @@ load_dotenv()
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
 )
-# ── CONFIG ──────────────────────────────────────────────────────────────────
 MODEL_PATH = "action_model.h5"
 HAND_MODEL_PATH = "models/hand_landmarker.task"
 ACTIONS = ["YOU", "ME", "WANT", "NEED", "KNOW", "WHAT"]
@@ -25,7 +24,6 @@ SEQUENCE_LENGTH = 30
 WS_HOST = "localhost"
 WS_PORT = 8765
 
-# ── LOAD MODELS ─────────────────────────────────────────────────────────────
 print("Loading action model...")
 model = load_model("D:\\cl front\\action_model.h5")
 
@@ -65,7 +63,7 @@ async def improve_sentence_with_gemini(words):
     try:
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-flash-latest",
             contents=prompt
         )
 
@@ -196,7 +194,7 @@ async def detection_handler(websocket):
 async def main():
     print(f"Starting TTMH WebSocket server on ws://{WS_HOST}:{WS_PORT}")
     async with websockets.serve(detection_handler, WS_HOST, WS_PORT):
-        await asyncio.Future()  # run forever
+        await asyncio.Future()
 
 
 if __name__ == "__main__":
